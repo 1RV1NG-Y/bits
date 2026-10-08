@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Knowledge — Interface Example</title>
+<style>
+:root { color-scheme: light dark; background: light-dark(#f7f8f7, #1d1f20); }
+body { margin: 0; padding: 24px; }
+#knowledge-sketch { max-width: 1100px; margin: 0 auto; }
+#knowledge-sketch .cursor-interaction { cursor: pointer; }
+@media (max-width: 490px) { body { padding: 8px; } }
+</style>
+</head>
+<body>
+<!--
+CODEX HANDOFF
+This is the interface example from the distilled-information knowledge-base discussion.
+Goal: a separate app for small self-contained pieces of information, independent of Folio.
+Preserve the flat responsive grid, readable card contents, prominent search, quiet styling,
+optional titles/topics/sources, favorites, and the small add/edit overlay.
+Keep source attribution when useful; original media should not be required for retrieval.
+
+CURRENT BEHAVIOR
+Works offline with plain HTML, CSS, and JavaScript; no dependencies or build step.
+Supports text search, topic filtering, favorites, adding/editing entries, and copying text.
+Search is word matching, not semantic retrieval. Entries are in memory and reset on reload.
+The sample cards are illustrative personal notes, not independently verified reference data.
+
+NEXT IMPLEMENTATION WORK
+Integrate the design into the target project using its existing stack and conventions.
+Add durable storage and deletion with undo. Keep capture simple: writing/pasting text must
+work without AI. Screenshot/URL/video distillation and semantic retrieval are future options.
+Do not introduce a folder tree, separate category pages, or a mandatory tagging workflow.
+If no target stack is established, choose a small local-first implementation.
+-->
+<div id="knowledge-sketch">
+  <header class="kc-header"><span class="kc-brand">Knowledge<span>.</span></span><button class="kc-add cursor-interaction" type="button"><span aria-hidden="true">+</span>Add knowledge</button></header>
+  <main class="kc-main">
+    <label class="kc-search"><span aria-hidden="true">⌕</span><input type="search" aria-label="Search knowledge" placeholder="Search anything you remember…"><kbd>/</kbd></label>
+    <div class="kc-bar"><div class="kc-tabs"><button class="cursor-interaction" type="button" data-view="all" aria-pressed="true">All knowledge</button><button class="cursor-interaction" type="button" data-view="saved" aria-pressed="false">Favorites</button></div><span class="kc-count" aria-live="polite"></span></div>
+    <div class="kc-active" hidden><span></span><button type="button" class="cursor-interaction">Clear topic ×</button></div>
+    <div class="kc-grid"></div>
+    <div class="kc-empty" hidden>No matching knowledge.</div>
+  </main>
+  <div class="kc-overlay" hidden><section class="kc-editor" role="dialog" aria-modal="true" aria-labelledby="kc-edit-heading"><div class="kc-editor-top"><h2 id="kc-edit-heading">Knowledge</h2><button type="button" class="kc-close cursor-interaction" aria-label="Close">×</button></div><form><label>Title <span>(optional)</span><input name="heading" placeholder="A few words to recognize it"></label><label>Knowledge<textarea name="content" rows="7" placeholder="Paste or write the information you want to keep." required></textarea></label><label>Topics <span>(optional)</span><input name="topics" placeholder="Rust, coding agents"></label><details><summary class="cursor-interaction">Source (optional)</summary><input name="source" aria-label="Source" placeholder="URL or a short source note"></details><div class="kc-editor-bottom"><button type="button" class="kc-copy cursor-interaction">Copy text</button><button type="submit" class="kc-save cursor-interaction">Save</button></div></form></section></div>
+</div>
+<style>
+#knowledge-sketch{--kc-bg:light-dark(#f7f8f7,#1d1f20);--kc-panel:light-dark(#fff,#232627);--kc-ink:light-dark(#252a28,#e2e5e3);--kc-muted:light-dark(#69736d,#a5aea8);--kc-line:light-dark(#dde2de,#363c38);--kc-soft:light-dark(#edf1ee,#2a302c);--kc-accent:light-dark(#d1e2d5,#c1d8c8);--kc-accent-ink:#243b2c;font-family:system-ui,sans-serif;font-size:14px;line-height:1.6;color:var(--kc-ink);background:var(--kc-bg);min-height:650px;position:relative;isolation:isolate;border:1px solid var(--kc-line);border-radius:10px;overflow:clip}
+#knowledge-sketch *{box-sizing:border-box}
+#knowledge-sketch [hidden]{display:none!important}
+#knowledge-sketch button,#knowledge-sketch input,#knowledge-sketch textarea{font:inherit}
+#knowledge-sketch button{color:inherit}
+#knowledge-sketch .kc-header{display:flex;justify-content:space-between;align-items:center;padding:20px 28px;border-bottom:1px solid var(--kc-line);gap:12px}
+#knowledge-sketch .kc-brand{font-size:21px;font-weight:500;letter-spacing:-.8px}
+#knowledge-sketch .kc-brand span{color:var(--kc-muted)}
+#knowledge-sketch .kc-add,#knowledge-sketch .kc-save{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--kc-accent);color:var(--kc-accent-ink);border:0;border-radius:6px;padding:8px 13px;font-weight:500}
+#knowledge-sketch .kc-main{padding:28px}
+#knowledge-sketch .kc-search{display:flex;align-items:center;gap:12px;border:1px solid var(--kc-line);border-radius:7px;background:var(--kc-panel);padding:12px 16px}
+#knowledge-sketch .kc-search svg{color:var(--kc-muted);flex-shrink:0}
+#knowledge-sketch .kc-search input{color:var(--kc-ink);background:transparent;border:0;min-width:0;width:100%;outline-offset:5px}
+#knowledge-sketch input::placeholder,#knowledge-sketch textarea::placeholder{color:var(--kc-muted);opacity:1}
+#knowledge-sketch kbd{color:var(--kc-muted);border:1px solid var(--kc-line);border-radius:3px;padding:0 6px;font:12px system-ui}
+#knowledge-sketch .kc-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:19px 0 20px}
+#knowledge-sketch .kc-tabs{display:flex;gap:5px;flex-wrap:wrap}
+#knowledge-sketch .kc-tabs button{background:transparent;border:0;color:var(--kc-muted);padding:6px 10px;border-radius:5px}
+#knowledge-sketch .kc-tabs button[aria-pressed=true]{background:var(--kc-soft);color:var(--kc-ink)}
+#knowledge-sketch .kc-count{font-size:12px;color:var(--kc-muted);white-space:nowrap}
+#knowledge-sketch .kc-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:13px}
+#knowledge-sketch .kc-note{background:var(--kc-panel);border:1px solid var(--kc-line);border-radius:7px;min-height:206px;display:flex;flex-direction:column;position:relative;overflow-wrap:anywhere}
+#knowledge-sketch .kc-open{display:block;text-align:left;background:transparent;border:0;padding:18px 18px 12px;flex:1;width:100%}
+#knowledge-sketch .kc-open:hover{background:var(--kc-soft)}
+#knowledge-sketch .kc-title{font-weight:500;display:block;padding-right:18px;margin-bottom:10px}
+#knowledge-sketch .kc-text{display:block;color:var(--kc-ink);white-space:pre-line}
+#knowledge-sketch .kc-star{position:absolute;right:10px;top:9px;z-index:1;border:0;background:var(--kc-panel);color:var(--kc-muted);border-radius:4px;width:26px;height:26px;padding:0}
+#knowledge-sketch .kc-star[aria-pressed=true]{color:var(--kc-ink)}
+#knowledge-sketch .kc-topics{display:flex;gap:7px;flex-wrap:wrap;padding:0 18px 16px}
+#knowledge-sketch .kc-topic{border:0;background:var(--kc-soft);border-radius:4px;padding:1px 6px;color:var(--kc-muted);font-size:11px}
+#knowledge-sketch .kc-active{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;color:var(--kc-muted);gap:10px}
+#knowledge-sketch .kc-active button{background:transparent;border:0;color:var(--kc-muted)}
+#knowledge-sketch .kc-empty{padding:50px 0;text-align:center;color:var(--kc-muted)}
+#knowledge-sketch .kc-overlay{position:absolute;inset:0;z-index:10;background:light-dark(#eef1eef0,#181b19f0);display:flex;align-items:flex-start;justify-content:center;padding:26px 16px}
+#knowledge-sketch .kc-editor{background:var(--kc-panel);border:1px solid var(--kc-line);border-radius:9px;padding:22px;width:550px;max-width:100%}
+#knowledge-sketch .kc-editor-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:15px}
+#knowledge-sketch h2{font-size:18px;font-weight:500;margin:0}
+#knowledge-sketch .kc-close{background:transparent;border:0;font-size:23px;width:32px;height:32px;padding:0;color:var(--kc-muted)}
+#knowledge-sketch form label{display:block;font-size:12px;margin-bottom:14px;color:var(--kc-muted)}
+#knowledge-sketch form label span{opacity:.85}
+#knowledge-sketch form input,#knowledge-sketch form textarea{display:block;width:100%;background:var(--kc-bg);color:var(--kc-ink);border:1px solid var(--kc-line);border-radius:5px;padding:9px 11px;margin-top:5px;font-size:14px}
+#knowledge-sketch form textarea{resize:vertical;min-height:130px}
+#knowledge-sketch details{font-size:12px;color:var(--kc-muted)}
+#knowledge-sketch .kc-editor-bottom{display:flex;align-items:center;justify-content:space-between;margin-top:20px;gap:10px}
+#knowledge-sketch .kc-copy{border:1px solid var(--kc-line);background:transparent;padding:7px 12px;border-radius:5px}
+@media(max-width:760px){#knowledge-sketch .kc-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:490px){#knowledge-sketch .kc-main{padding:17px}#knowledge-sketch .kc-header{padding:16px}#knowledge-sketch .kc-grid{grid-template-columns:1fr}#knowledge-sketch .kc-add{font-size:12px}#knowledge-sketch .kc-note{min-height:165px}#knowledge-sketch kbd{display:none}#knowledge-sketch input,#knowledge-sketch textarea{font-size:16px!important}#knowledge-sketch .kc-editor{padding:16px}}
+@media(pointer:coarse){#knowledge-sketch .kc-topic,#knowledge-sketch .kc-tabs button{min-height:44px}#knowledge-sketch .kc-star{width:44px;height:44px;right:5px;top:4px}#knowledge-sketch .kc-title{padding-right:30px}}
+</style>
+<script>
+(()=>{
+const root=document.getElementById('knowledge-sketch');
+const entries=[
+{id:1,title:'Rust + coding agents',body:'DHH says coding agents reduce the productivity cost of Rust enough that he now uses it for web apps.',topics:['Rust','AI agents'],favorite:true,source:'DHH post'},
+{id:2,title:'Remembering through a sequence',body:'When I cannot remember a lyric, starting from an earlier part of the song helps me reach it. I notice a similar pattern with other memories.',topics:['Memory','Personal'],favorite:false,source:'My observation'},
+{id:3,title:'Separate branches, same repository',body:'Git worktrees let you work on multiple branches in separate directories without cloning the repository again.',topics:['Git','Development'],favorite:false,source:''},
+{id:4,title:'My Qwen context notes',body:'Escha W2 on my 16 GB GPU:\n• Model: about 10.15 GB on disk\n• Reached about 33k context\n\nA record of my setup, not a general limit.',topics:['Local AI','Hardware'],favorite:true,source:'My test'},
+{id:5,title:'Start Termux X11 + XFCE',body:'termux-x11 :1 -xstartup "dbus-launch --exit-with-session xfce4-session"',topics:['Android','Linux'],favorite:false,source:'My working command'},
+{id:6,title:'Source → distilled information',body:'Keep the smallest piece I would want to retrieve on its own. It can be a sentence, paragraph, short list, or command.',topics:['Knowledge','Design'],favorite:false,source:'Project notes'}
+];
+const search=root.querySelector('.kc-search input'),grid=root.querySelector('.kc-grid'),overlay=root.querySelector('.kc-overlay'),form=root.querySelector('form'),active=root.querySelector('.kc-active');
+let view='all',topic='',editing=null,previousFocus=null;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function render(){
+const words=search.value.toLowerCase().trim().split(/\s+/).filter(Boolean);
+const list=entries.filter(e=>(view!=='saved'||e.favorite)&&(!topic||e.topics.includes(topic))&&words.every(w=>(e.title+' '+e.body+' '+e.topics.join(' ')).toLowerCase().includes(w)));
+grid.innerHTML=list.map(e=>`<article class="kc-note"><button type="button" class="kc-star cursor-interaction" data-star="${e.id}" aria-pressed="${e.favorite}" aria-label="${e.favorite?'Remove from':'Add to'} favorites: ${esc(e.title)}">${e.favorite?'★':'☆'}</button><button type="button" class="kc-open cursor-interaction" data-open="${e.id}"><span class="kc-title">${esc(e.title)}</span><span class="kc-text">${esc(e.body)}</span></button><div class="kc-topics">${e.topics.map(t=>`<button class="kc-topic cursor-interaction" type="button" data-topic="${esc(t)}">${esc(t)}</button>`).join('')}</div></article>`).join('');
+root.querySelector('.kc-count').textContent=search.value.trim()?`${list.length} results`:`${list.length} pieces`;
+root.querySelector('.kc-empty').hidden=list.length!==0;active.hidden=!topic;active.querySelector('span').textContent=topic;
+}
+function openEntry(entry){editing=entry;previousFocus=document.activeElement;form.reset();form.elements.heading.value=entry?.title||'';form.elements.content.value=entry?.body||'';form.elements.topics.value=entry?.topics.join(', ')||'';form.elements.source.value=entry?.source||'';root.querySelector('#kc-edit-heading').textContent=entry?'Edit knowledge':'Add knowledge';root.querySelector('.kc-copy').hidden=!entry;overlay.hidden=false;form.elements.content.focus();}
+function close(){overlay.hidden=true;previousFocus?.focus();}
+search.addEventListener('input',render);
+root.querySelectorAll('[data-view]').forEach(b=>b.addEventListener('click',()=>{view=b.dataset.view;root.querySelectorAll('[data-view]').forEach(x=>x.setAttribute('aria-pressed',x===b?'true':'false'));render();}));
+grid.addEventListener('click',event=>{const star=event.target.closest('[data-star]'),note=event.target.closest('[data-open]'),tag=event.target.closest('[data-topic]');if(star){const e=entries.find(x=>x.id===Number(star.dataset.star));e.favorite=!e.favorite;render();}else if(note){openEntry(entries.find(x=>x.id===Number(note.dataset.open)));}else if(tag){topic=tag.dataset.topic;render();}});
+active.querySelector('button').addEventListener('click',()=>{topic='';render();});
+root.querySelector('.kc-add').addEventListener('click',()=>openEntry(null));root.querySelector('.kc-close').addEventListener('click',close);
+overlay.addEventListener('click',event=>{if(event.target===overlay)close();});
+form.addEventListener('submit',event=>{event.preventDefault();const body=form.elements.content.value.trim();if(!body)return;const data={title:form.elements.heading.value.trim()||body.split(/[\n.!?]/)[0].slice(0,70),body,topics:form.elements.topics.value.split(',').map(x=>x.trim()).filter(Boolean),source:form.elements.source.value.trim()};if(editing)Object.assign(editing,data);else entries.unshift({...data,id:Date.now(),favorite:false});close();render();});
+root.querySelector('.kc-copy').addEventListener('click',async()=>{const button=root.querySelector('.kc-copy');try{await navigator.clipboard.writeText(form.elements.content.value);button.textContent='Copied';}catch{form.elements.content.select();button.textContent='Text selected';}});
+root.addEventListener('keydown',event=>{if(event.key==='Escape'&&!overlay.hidden){event.preventDefault();close();}if(event.key==='/'&&!['INPUT','TEXTAREA'].includes(event.target.tagName)){event.preventDefault();search.focus();}if(event.key==='Tab'&&!overlay.hidden){const nodes=[...overlay.querySelectorAll('button,input,textarea,summary')].filter(x=>x.getClientRects().length&&!x.disabled);const first=nodes[0],last=nodes[nodes.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}}});
+render();
+})();
+</script>
+
+</body>
+</html>
