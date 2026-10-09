@@ -2,3 +2,7 @@ node_modules/
 dist/
 release/
 *.log
+
+# Design references and mockups (kept locally, not part of the app)
+build/preview.png
+build/read-mode.png
