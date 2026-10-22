@@ -1,0 +1,43 @@
+name: Sync prototype (Windows)
+# Builds and tests the sync prototype on real Windows (MSVC) and uploads a zip of the
+# desktop prototype. Linux checks alone don't establish that the Windows build works.
+on:
+  push:
+    paths:
+      - "sync/**"
+      - ".github/workflows/sync-windows.yml"
+      - "package.json"
+      - "package-lock.json"
+  workflow_dispatch:
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable-x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: sync
+      - run: npm ci
+      - name: Core tests (storage, pairing, multi-device sync)
+        run: cargo test --manifest-path sync/Cargo.toml -p bits-sync
+      - run: npm run sync:helper
+      - name: Helper process test (pairing, kill -9 durability, reconnect)
+        run: node --test sync/tests/helper.test.mjs
+      - run: npm run sync:ui
+      - name: Package the desktop prototype
+        run: npx electron-builder --config sync/desktop/electron-builder.yml --win zip --x64 --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bits-sync-prototype-windows-x64
+          path: sync/desktop/release/*.zip
+          if-no-files-found: error

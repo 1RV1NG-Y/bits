@@ -1,0 +1,7 @@
+{
+  "identifier": "default",
+  "description": "Permissions for the prototype window on mobile",
+  "windows": ["main"],
+  "permissions": ["core:default", "core:app:allow-exit", "barcode-scanner:default"],
+  "platforms": ["android", "iOS"]
+}

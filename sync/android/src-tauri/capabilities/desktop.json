@@ -1,0 +1,7 @@
+{
+  "identifier": "desktop",
+  "description": "Desktop builds (UI checks only) have no scanner",
+  "windows": ["main"],
+  "permissions": ["core:default"],
+  "platforms": ["linux", "windows", "macOS"]
+}

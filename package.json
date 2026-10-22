@@ -14,7 +14,13 @@
     "test": "node --test tests/*.test.mjs",
     "package": "npm run build && electron-builder --linux AppImage tar.gz",
     "install:linux": "node scripts/install-linux.mjs",
-    "setup:ocr": "node scripts/setup-ocr.mjs"
+    "setup:ocr": "node scripts/setup-ocr.mjs",
+    "sync:helper": "cargo build --release --manifest-path sync/Cargo.toml -p bits-sync-helper",
+    "sync:ui": "vite build --config sync/ui/vite.config.js",
+    "sync:desktop": "npm run sync:helper && npm run sync:ui && electron sync/desktop/main.cjs",
+    "sync:test": "cargo test --manifest-path sync/Cargo.toml && npm run sync:helper && node --test sync/tests/*.test.mjs",
+    "tauri": "tauri",
+    "sync:android": "node sync/android/build-apk.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",
@@ -24,6 +30,9 @@
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
+    "@tauri-apps/api": "^2.12.2",
+    "@tauri-apps/cli": "^2.12.1",
+    "@tauri-apps/plugin-barcode-scanner": "^2.5.1",
     "@testing-library/react": "^16.3.3",
     "@vitejs/plugin-react": "^6.0.0",
     "concurrently": "^9.2.1",

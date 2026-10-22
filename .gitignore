@@ -6,3 +6,9 @@ release/
 # Design references and mockups (kept locally, not part of the app)
 build/preview.png
 build/read-mode.png
+
+# Sync prototype build output
+sync/target/
+sync/ui/dist/
+sync/android/dist/
+sync/desktop/release/

@@ -1,0 +1,34 @@
+# Packages the sync prototype desktop host (not the main bits app, whose config lives in
+# package.json). Windows: a zip to extract and run. Linux: an unpacked directory.
+#   npx electron-builder --config sync/desktop/electron-builder.yml --win zip --x64
+appId: com.bits.syncprototype
+productName: bits sync prototype
+executableName: bits-sync-prototype
+directories:
+  output: sync/desktop/release
+extraMetadata:
+  name: bits-sync-prototype
+  main: sync/desktop/main.cjs
+files:
+  - sync/desktop/main.cjs
+  - sync/desktop/preload.cjs
+  - sync/desktop/helper-client.cjs
+  - sync/ui/dist/**
+  - build/icon.png
+  - package.json
+  # The UI is prebuilt by Vite, so no runtime npm dependencies are needed.
+  - "!node_modules/**"
+win:
+  target: zip
+  icon: build/icon.png
+  # Unsigned prototype; skips rcedit/signing so it can also be built without Windows tools.
+  signAndEditExecutable: false
+  artifactName: bits-sync-prototype-${version}-win-${arch}.${ext}
+  extraResources:
+    - from: sync/target/release/bits-sync-helper.exe
+      to: bits-sync-helper.exe
+linux:
+  target: dir
+  extraResources:
+    - from: sync/target/release/bits-sync-helper
+      to: bits-sync-helper
