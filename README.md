@@ -44,7 +44,7 @@ bits syncs directly between your own devices over your Wi-Fi network: no account
 
 The footer says **Saved on this device** or **received by** your other devices; the latter means they’ve stored the change on disk, which matters before you reboot into another system. If the same field of a bit is changed on two devices that hadn’t seen each other’s change, both versions are kept, the card shows **Two versions**, and the editor lets you pick one or combine them. Edits to different fields, and topics added on different devices, simply combine.
 
-The Android app is currently a test app with its own small interface. The engine, its merge rules, and what has been tested are described in [sync/README.md](sync/README.md). On Linux with `ufw`, allow UDP 47100 (sync) and 5353 (discovery) from your local network; on Windows, allow `bits-sync-helper.exe` on private networks when asked.
+The Android app (`npm run sync:android`) runs this same interface, with QR scanning for pairing. The engine, its merge rules, and what has been tested are described in [sync/README.md](sync/README.md). On Linux with `ufw`, allow UDP 47100 (sync) and 5353 (discovery) from your local network; on Windows, allow `bits-sync-helper.exe` on private networks when asked.
 
 ## Storage and recovery
 

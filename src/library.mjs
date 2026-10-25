@@ -1,6 +1,7 @@
 // The library the UI works with. In the desktop app it is the sync helper (durable,
-// change-by-change, shared with paired devices). In the browser preview it is a single
-// localStorage copy with the same operations and no sync.
+// change-by-change, shared with paired devices); on Android, the same sync core linked
+// into the app (Tauri). In the browser preview it is a single localStorage copy with the
+// same operations and no sync.
 import { parseTopics } from './model.mjs';
 
 function desktop() {
@@ -21,6 +22,45 @@ function desktop() {
     onEvent: cb => window.bits.onSyncEvent(cb),
     migrationError: () => window.bits.migrationError(),
     migrationResolved: () => window.bits.migrationResolved(),
+  };
+}
+
+function android() {
+  const tauri = import('@tauri-apps/api/core');
+  const call = (method, params = null) => tauri.then(({ invoke }) => invoke('call', { method, params }));
+  return {
+    synced: true,
+    mobile: true,
+    notes: () => call('notes'),
+    status: () => call('status'),
+    create: fields => call('createNote', fields),
+    update: (id, patch) => call('updateNote', { id, patch }),
+    setDeleted: (ids, deleted) => call('setDeleted', { ids, deleted }),
+    deleteForever: ids => call('deleteForever', { ids }),
+    importEntries: entries => call('importNotes', { notes: entries }),
+    createInvite: () => call('createInvite'),
+    useCode: ticket => call('join', { ticket }),
+    removeDevice: id => call('removeDevice', { id }),
+    networkChanged: () => call('networkChanged'),
+    onEvent: cb => {
+      const off = import('@tauri-apps/api/event').then(({ listen }) => listen('sync-event', e => cb(e.payload)));
+      return () => { off.then(f => f()); };
+    },
+    migrationError: async () => null,
+    migrationResolved: async () => {},
+    scan: async () => {
+      const { scan, Format, checkPermissions, requestPermissions } = await import('@tauri-apps/plugin-barcode-scanner');
+      let permission = await checkPermissions();
+      if (permission !== 'granted') permission = await requestPermissions();
+      if (permission !== 'granted') throw new Error('Camera access is needed to scan a code. You can paste the code instead.');
+      return (await scan({ formats: [Format.QRCode], windowed: false })).content;
+    },
+    // Android Back: the handler decides what to close; exit() finishes the activity.
+    onBack: handler => {
+      const listener = import('@tauri-apps/api/app').then(({ onBackButtonPress }) => onBackButtonPress(handler));
+      return () => { listener.then(l => l.unregister()); };
+    },
+    exit: () => import('@tauri-apps/api/app').then(({ exit }) => exit(0)),
   };
 }
 
@@ -74,5 +114,7 @@ function browser() {
 }
 
 export function openLibrary() {
-  return window.bits?.sync ? desktop() : browser();
+  if (window.bits?.sync) return desktop();
+  if (window.__TAURI_INTERNALS__) return android();
+  return browser();
 }

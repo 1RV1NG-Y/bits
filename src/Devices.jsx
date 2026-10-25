@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Smartphone, Monitor, Laptop, QrCode, ClipboardPaste, Copy } from 'lucide-react';
+import { Smartphone, Monitor, Laptop, QrCode, ClipboardPaste, Copy, ScanLine } from 'lucide-react';
 import Modal from './Modal.jsx';
 
 export const ago = iso => {
@@ -27,6 +27,16 @@ export default function Devices({ library, status, onClose, notify }) {
     const result = await run(() => library.useCode(ticket));
     setBusy(false);
     if (result) { notify(result.joined ? `Joined ${result.device}’s library` : `Added ${result.device}`); setPasting(false); setTicket(''); }
+  };
+  const scan = async () => {
+    let text;
+    try { text = await library.scan(); }
+    catch (e) { if (!/cancel/i.test(String(e))) setError(e?.message || String(e)); return; }
+    if (!text) return;
+    setBusy(true);
+    const result = await run(() => library.useCode(text));
+    setBusy(false);
+    if (result) notify(result.joined ? `Joined ${result.device}’s library` : `Added ${result.device}`);
   };
   return <Modal title="Devices" onClose={onClose} className="settings devices">
     <p className="muted">Your bits sync directly between your devices over your Wi-Fi network. No account or cloud service is involved.</p>
@@ -59,9 +69,12 @@ export default function Devices({ library, status, onClose, notify }) {
         <textarea className="ticket" autoFocus placeholder="Paste the code (starts with BITS2)" value={ticket} onChange={e => setTicket(e.target.value)}/>
         <div className="button-group"><button className="secondary" onClick={() => setPasting(false)}>Cancel</button><button className="primary" disabled={busy || !ticket.trim()} onClick={connect}>{busy ? 'Connecting…' : 'Connect'}</button></div>
       </> : <>
-        <p>{paired ? 'Show this code on the new device, or paste the code it shows.' : 'Show this device’s code and scan it from your phone, or paste a code from a device you already use. Bits already here are kept.'}</p>
+        <p>{library.scan
+          ? (paired ? 'Scan the code a new device shows, or show this device’s code on it.' : 'Scan the code on a device you already use. Bits already here are kept.')
+          : (paired ? 'Show this code on the new device, or paste the code it shows.' : 'Show this device’s code and scan it from your phone, or paste a code from a device you already use. Bits already here are kept.')}</p>
         <div className="button-group">
-          <button className="primary" onClick={() => run(() => library.createInvite()).then(i => i && setInvite(i))}><QrCode size={16}/>Show this device’s code</button>
+          {library.scan && <button className="primary" disabled={busy} onClick={scan}><ScanLine size={16}/>{busy ? 'Connecting…' : 'Scan code'}</button>}
+          <button className={library.scan ? 'secondary' : 'primary'} onClick={() => run(() => library.createInvite()).then(i => i && setInvite(i))}><QrCode size={16}/>Show this device’s code</button>
           <button className="secondary" onClick={() => setPasting(true)}><ClipboardPaste size={15}/>Paste a code</button>
         </div>
       </>}

@@ -17,7 +17,6 @@
     "install:linux": "node scripts/install-linux.mjs",
     "setup:ocr": "node scripts/setup-ocr.mjs",
     "sync:helper": "cargo build --release --manifest-path sync/Cargo.toml -p bits-sync-helper",
-    "sync:ui": "vite build --config sync/ui/vite.config.js",
     "sync:test": "cargo test --manifest-path sync/Cargo.toml && npm run sync:helper && node --test sync/tests/*.test.mjs",
     "tauri": "tauri",
     "sync:android": "node sync/android/build-apk.mjs"

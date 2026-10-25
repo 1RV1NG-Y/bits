@@ -9,5 +9,4 @@ build/read-mode.png
 
 # Sync prototype build output
 sync/target/
-sync/ui/dist/
 sync/android/dist/

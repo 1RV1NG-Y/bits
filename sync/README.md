@@ -5,10 +5,10 @@ local-network discovery, one Rust core on Linux, Windows, and Android. No accoun
 cloud services. The desktop app uses it through a bundled helper process; the Android app links
 the core directly.
 
-Status: stages 1–3 of the sync plan are done. Sync works in the main desktop app, with the merge
-rules from stage 2 and the pre-sync library migrated automatically.
-The Android app is still the stage 1 test app with its own small UI (stage 4 replaces it with
-the real bits interface).
+Status: stages 1–3 of the sync plan are done, and stage 4 is under way. Sync works in the main
+desktop app, with the merge rules from stage 2 and the pre-sync library migrated automatically.
+The Android app now runs the same bits interface as the desktop (Read/Edit, Trash, two-version
+picker, Devices with QR scanning); the Android share menu is still to come.
 
 ## Layout
 
@@ -16,12 +16,13 @@ the real bits interface).
 |---|---|
 | `core/` | `bits-sync` crate: document model and merge rules (`model.rs`), durable storage (`store.rs`), pairing, sync sessions and reconnection (`node.rs`), wire format (`proto.rs`). `rpc.rs` is the API every front end uses. |
 | `helper/` | `bits-sync-helper`: desktop process serving the core to Electron as JSON lines over stdio. It exits when stdin closes or when its parent process dies, so a crashed window never leaves it holding the library. |
-| `android/` | Tauri v2 app that links the core into the APK. `src-tauri/gen/android` is the generated Gradle project, with a multicast lock and system-bar insets in `MainActivity.kt`, backup disabled, and ML Kit keep rules for QR scanning. |
-| `ui/` | The Android test app's UI. It reuses bits' Markdown renderer and palette. |
+| `android/` | Tauri v2 app that links the core into the APK and bundles the main bits UI (`dist/`, built from `src/`). `src-tauri/gen/android` is the generated Gradle project, with a multicast lock and system-bar insets in `MainActivity.kt`, backup disabled, and ML Kit keep rules for QR scanning. |
 | `tests/` | End-to-end test of two real helper processes. |
 
-The desktop side lives with the rest of the app: `electron/sync-helper.cjs` starts the helper,
-`electron/migrate.cjs` moves the pre-sync library in, and `src/library.mjs` is what the UI calls.
+The rest lives with the app: `electron/sync-helper.cjs` starts the helper, `electron/migrate.cjs`
+moves the pre-sync library in, and `src/library.mjs` is what the UI calls, with one
+implementation for the desktop (helper), one for Android (Tauri commands), and one for the
+browser preview (no sync).
 
 ## Build and test
 
@@ -136,6 +137,7 @@ sudo ufw allow from 192.168.100.0/24 to any port 5353 proto udp
 | Windows: stage 1 test app on a real install, incl. the handoff through the phone | manual | pass |
 | Windows: main app on a real install | manual | not yet |
 | Real phone (Galaxy S22, Android 16): QR pairing, mDNS on home Wi-Fi, edits both ways, field merge, no internet, reconnect | manual (stage 1 test app) | pass |
+| Real phone with the main bits UI: paired with the installed desktop app, library synced, Read mode, Back closes dialogs before leaving | manual | pass |
 | mDNS rediscovery after both devices change port | two helpers | reconnected in about 1 s |
 
 Real-device findings fixed along the way: release builds stripped parts of ML Kit that the QR
@@ -144,8 +146,9 @@ error on close when a peer was connected (events are now sent only to a live win
 
 ## Known limitations
 
-- The Android app is the stage 1 test app; the real bits interface on Android, including the
-  share menu, is stage 4.
+- Android: no share-menu target yet, backups are made from a desktop, image import (OCR) is
+  desktop-only, and the package id is still `com.bits.syncprototype` (changing it means a fresh
+  install). The APK is debug-signed.
 - One library per device. A paired device can add others but can't join a second library.
 - Removal is advisory: a removed device keeps its copy and is only refused future syncs.
 - Sync runs while an app is open. Android background behaviour hasn't been measured.

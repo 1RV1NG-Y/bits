@@ -103,3 +103,5 @@
 .conflict-meta{font-size:12px;color:#bfb293;display:flex;gap:8px;align-items:center}
 .conflict-meta .in-editor{background:#4a4230;border-radius:3px;padding:0 5px;color:#ecd9a8}
 .conflict-value{white-space:pre-wrap;overflow-wrap:anywhere;max-height:12em;overflow:auto;font-size:13px;width:100%}
+/* Touch screens have no keyboard shortcuts to hint at. */
+@media (hover:none){.search-box kbd{display:none}}

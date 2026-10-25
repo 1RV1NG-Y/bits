@@ -56,6 +56,23 @@ export default function App() {
     }; window.addEventListener('keydown', key); return () => window.removeEventListener('keydown', key);
   }, [editor, settings, devices, confirm, notes]);
 
+  // Android Back: close the open dialog (it runs its own unsaved-changes check), then
+  // clear filters, then leave the app.
+  const back = useRef(); back.current = () => {
+    const open = [...document.querySelectorAll('dialog[open]')];
+    if (open.length) open.at(-1).dispatchEvent(new Event('cancel', { cancelable: true }));
+    else if (query || topic || view !== 'all') { setQuery(''); setTopic(''); setView('all'); }
+    else library.exit();
+  };
+  useEffect(() => library.onBack?.(() => back.current()), [library]);
+  // Back in the foreground: the network may have changed while the app was in the background.
+  useEffect(() => {
+    if (!library.mobile) return;
+    const visible = () => { if (document.visibilityState === 'visible') library.networkChanged().catch(() => {}); };
+    document.addEventListener('visibilitychange', visible);
+    return () => document.removeEventListener('visibilitychange', visible);
+  }, [library]);
+
   const live = useMemo(() => (notes || []).filter(n => !n.deleted), [notes]);
   const trash = useMemo(() => (notes || []).filter(n => n.deleted), [notes]);
   const entries = useMemo(() => selectEntries(view === 'trash' ? trash : live, { query, topic, favorites: view === 'favorites', sort }), [live, trash, view, query, topic, sort]);
@@ -139,7 +156,7 @@ export default function App() {
     <input ref={importRef} type="file" accept=".json,application/json" hidden onChange={async e => { const file = e.target.files[0]; e.target.value = ''; if (file) importData(await run(() => readBackup(file))); }}/>
     {editor !== undefined && <Editor entry={editor} deviceName={deviceName} onClose={() => setEditor(undefined)} onSave={result => save(result, editor)} onDelete={remove} notify={notify}/>}
     {devices && status && <Devices library={library} status={status} notify={notify} onClose={() => setDevices(false)}/>}
-    {settings && <Modal title="Your bits" onClose={() => setSettings(false)} className="settings"><p className="muted">A small home for information you don’t want to rediscover. {library.synced ? 'Everything stays on your own devices.' : 'Everything stays on this device.'}</p><div className="settings-section"><h3>Your library</h3><p>{live.length} bits{trash.length ? ` · ${trash.length} in Trash` : ''} · {window.bits ? 'Saved on this device and synced to your paired devices' : 'Browser storage (separate from the desktop app)'}</p><div className="button-group"><button className="secondary" disabled={!notes} onClick={backup}><Download size={16}/>Export backup</button><button className="secondary" onClick={chooseImport}><Upload size={16}/>Import backup</button></div><small>JSON backups include all your text, topics, favorites, and sources. Importing adds the bits you don’t have yet; nothing is replaced.</small></div><div className="settings-section"><h3>Start fresh</h3><p>Move every bit to Trash. You can restore them from Trash later.</p><button className="secondary" disabled={!live.length} onClick={() => { setSettings(false); setConfirm({ type: 'clear' }); }}>Move all bits to Trash</button></div><div className="settings-section shortcuts"><h3>Shortcuts</h3><p><span>Search</span><kbd>/ or Ctrl / ⌘ K</kbd></p><p><span>Add a bit</span><kbd>Ctrl / ⌘ N</kbd></p><p><span>Save in editor</span><kbd>Ctrl / ⌘ Enter</kbd></p><p><span>Close / clear filters</span><kbd>Esc</kbd></p></div>{operationError && <p role="alert" className="error-text">{operationError}</p>}</Modal>}
+    {settings && <Modal title="Your bits" onClose={() => setSettings(false)} className="settings"><p className="muted">A small home for information you don’t want to rediscover. {library.synced ? 'Everything stays on your own devices.' : 'Everything stays on this device.'}</p><div className="settings-section"><h3>Your library</h3><p>{live.length} bits{trash.length ? ` · ${trash.length} in Trash` : ''} · {library.synced ? 'Saved on this device and synced to your paired devices' : 'Browser storage (separate from the desktop app)'}</p>{library.mobile ? <small>Backups are made from a desktop device: everything here syncs to it.</small> : <><div className="button-group"><button className="secondary" disabled={!notes} onClick={backup}><Download size={16}/>Export backup</button><button className="secondary" onClick={chooseImport}><Upload size={16}/>Import backup</button></div><small>JSON backups include all your text, topics, favorites, and sources. Importing adds the bits you don’t have yet; nothing is replaced.</small></>}</div><div className="settings-section"><h3>Start fresh</h3><p>Move every bit to Trash. You can restore them from Trash later.</p><button className="secondary" disabled={!live.length} onClick={() => { setSettings(false); setConfirm({ type: 'clear' }); }}>Move all bits to Trash</button></div>{!library.mobile && <div className="settings-section shortcuts"><h3>Shortcuts</h3><p><span>Search</span><kbd>/ or Ctrl / ⌘ K</kbd></p><p><span>Add a bit</span><kbd>Ctrl / ⌘ N</kbd></p><p><span>Save in editor</span><kbd>Ctrl / ⌘ Enter</kbd></p><p><span>Close / clear filters</span><kbd>Esc</kbd></p></div>}{operationError && <p role="alert" className="error-text">{operationError}</p>}</Modal>}
     {confirm && <Modal title={confirm.type === 'import' ? 'Import bits?' : confirm.type === 'clear' ? 'Move everything to Trash?' : 'Empty Trash?'} onClose={() => setConfirm(null)} className="confirmation">
       <p>{confirm.type === 'import' ? `This backup has ${confirm.data.entries.length} bits. ${confirm.added} will be added; ${confirm.data.entries.length - confirm.added} are already in your library and stay as they are.`
         : confirm.type === 'clear' ? `All ${live.length} bits move to Trash on this and your other devices. You can restore them from Trash.`
