@@ -28,8 +28,11 @@ app.whenReady().then(async () => {
   const trusted = isDev ? "http://127.0.0.1:5175/" : pathToFileURL(uiFile).href;
 
   helper = startHelper({ dataDir: path.join(app.getPath("userData"), "sync"), name: process.env.BITS_SYNC_NAME, port });
-  helper.events.on("exit", () => { if (!quitting) win?.webContents.send("sync:event", "helperStopped"); });
-  for (const name of ["notesChanged", "statusChanged"]) helper.events.on(name, () => win?.webContents.send("sync:event", name));
+  // The helper keeps emitting while it shuts down (sessions closing), after the window is
+  // gone; only forward events to a live window.
+  const send = (name) => { if (win && !win.isDestroyed()) win.webContents.send("sync:event", name); };
+  helper.events.on("exit", () => { if (!quitting) send("helperStopped"); });
+  for (const name of ["notesChanged", "statusChanged"]) helper.events.on(name, () => send(name));
   try {
     await helper.ready;
   } catch (error) {
@@ -52,6 +55,7 @@ app.whenReady().then(async () => {
     icon: path.join(__dirname, "../../build/icon.png"),
     webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false },
   });
+  win.on("closed", () => { win = null; });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   win.webContents.session.setPermissionRequestHandler((_wc, _p, cb) => cb(false));
