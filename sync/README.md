@@ -81,8 +81,14 @@ sudo ufw allow from 192.168.100.0/24 to any port 5353 proto udp
   opened). If two devices change the same field without having seen each other's change, both
   versions are kept and the note is flagged; the app shows them side by side, and saving
   settles the field everywhere. Edits to different fields combine without a conflict. A save
-  based on an older version never overwrites a newer change it hadn't seen. Topics are stored
-  one by one, so topics added on different devices combine and removals stick. Favorite,
+  based on an older version never overwrites a newer change it hadn't seen, and after saving
+  the editor continues from the note as stored, so a second save can't send back stale
+  fields. Topics are stored one by one and changed relative to the topics the editor opened
+  with, so topics added on another device meanwhile are kept and removals stick. Every note and
+  field lives in a *mergeable* container: devices that create the same note independently
+  (for example, both importing the same backup) get the same container, and imported text
+  gets version ids derived from its content, so their later edits merge instead of one copy
+  replacing the other. Favorite,
   Trash, and edit time are last-writer-wins. A note moved to Trash on one device while edited
   on another stays in Trash with the edit kept, and an old copy reconnecting can't bring a
   deleted note back. `devices` holds membership and `addresses` each device's current LAN
@@ -96,8 +102,12 @@ sudo ufw allow from 192.168.100.0/24 to any port 5353 proto udp
   `revert_to`) and the error says nothing was saved; the editor keeps your draft. Nothing
   unsaved is ever sent to other devices, so "received by X" always means X holds changes that
   also survive on this device.
-- **Schema:** `meta.json` records the document layout. Data from the stage 1 prototype (layout 1)
-  is refused with a clear message instead of being misread.
+- **Schema:** `meta.json` records the document layout. Layout 2 (plain child containers) is
+  upgraded on open: notes move into mergeable containers keeping their version ids, which
+  every device already shares, so devices that upgrade separately end up identical. The
+  upgrade is saved before the new layout is recorded, so an interrupted upgrade resumes. Data
+  from the stage 1 prototype (layout 1) is refused with a clear message. Devices on different
+  layouts refuse to sync until both are updated.
 - **Identity:** each installation has its own `device.key` (an iroh key). On Android, cloud backup
   and device-to-device transfer are disabled (`allowBackup="false"` plus
   `data_extraction_rules.xml`), so a new phone can't inherit another phone's identity.
@@ -125,6 +135,10 @@ sudo ufw allow from 192.168.100.0/24 to any port 5353 proto udp
 |---|---|---|
 | Storage: reopen, torn tail, compaction, foreign file left untouched, interrupted compaction | `cargo test` unit tests | pass |
 | Merge rules: same field edited apart keeps both versions and resolves everywhere; different fields combine; old-base save keeps newer remote change; topics combine and removals stick; delete vs edit; stale copy can't revive a deleted note; import keeps ids/dates and is idempotent | `cargo test` unit tests | pass |
+| Same note imported independently on two devices: different-field edits both survive; same-field edits become two versions | unit tests | pass |
+| Old draft saved after topics were added elsewhere keeps those topics | unit test | pass |
+| Second save in one editor session doesn't send back a field another device changed | UI test | pass |
+| Layout 2 upgrade: two devices upgrading separately end identical, conflicts kept, resumable; on-disk upgrade on open | unit + node tests; a copy of the real library (8 bits, every field equal to the original) | pass |
 | A failed save is rolled back, never sent, and no peer reports holding it | unit test (injected write failure) | pass |
 | Pairing interrupted at either write, in both directions, then a restart: device is unpaired and a new code works | unit test | pass |
 | **Dual-boot handoff:** Linux → phone → (Linux off) Windows pairs by showing its code to the phone → phone → (Windows off) Linux, incl. a note made on the phone between boots | integration test; Linux and Windows never run together | pass |

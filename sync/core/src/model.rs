@@ -1,6 +1,8 @@
 //! How Bits data is laid out inside the replicated Loro document, and the merge rules.
 //!
-//! `notes` maps note id → a map holding:
+//! `bits` maps note id → a map holding (every map below is a *mergeable* child: devices that
+//! create the same note or field independently, e.g. by importing the same backup, get the
+//! same container, so their changes merge instead of one copy replacing the other):
 //! - `title`, `body`, `source`: multi-value registers. Each is a map of edit id → [`Edit`].
 //!   An edit lists the edits it replaces, i.e. the versions its author had seen. Edits that
 //!   nothing replaces are the field's current versions: normally one; two or more when the
@@ -20,7 +22,10 @@ use anyhow::{Context, Result, bail};
 use loro::{LoroDoc, LoroMap, LoroValue, ValueOrContainer};
 use serde::{Deserialize, Serialize};
 
-pub const NOTES: &str = "notes";
+/// Notes in the current layout (schema 3).
+pub const BITS: &str = "bits";
+/// Notes in the schema 2 layout, read once when upgrading.
+pub const LEGACY_NOTES: &str = "notes";
 pub const DEVICES: &str = "devices";
 /// Map of endpoint id → JSON list of socket addresses, written only by that device.
 pub const ADDRESSES: &str = "addresses";
@@ -73,6 +78,10 @@ pub struct NotePatch {
     /// versions; anything newer from another device is kept as a conflict. Without a base,
     /// a write replaces every current version (resolving any conflict).
     pub base: Option<BTreeMap<String, Vec<String>>>,
+    /// The topics when the editor opened. With it, only the topics the user added or
+    /// removed change, so topics another device added meanwhile are kept. Without it,
+    /// the topics become exactly `topics`.
+    pub base_topics: Option<Vec<String>>,
 }
 
 /// A complete note brought in from a backup or the pre-sync library, keeping its id
@@ -150,7 +159,7 @@ fn child_map(map: &LoroMap, key: &str) -> Option<LoroMap> {
 }
 
 fn note_map(doc: &LoroDoc, id: &str) -> Option<LoroMap> {
-    child_map(&doc.get_map(NOTES), id)
+    child_map(&doc.get_map(BITS), id)
 }
 
 fn edits(register: &LoroMap) -> Vec<(String, Edit)> {
@@ -193,6 +202,12 @@ fn write_register(register: &LoroMap, value: &str, base: Option<&[String]>, by: 
     Ok(true)
 }
 
+/// Key for an edit that every device importing the same value derives identically, so
+/// independent imports of one backup are the same version rather than a conflict.
+fn import_edit_id(value: &str, updated_at: &str) -> String {
+    format!("import:{:08x}:{updated_at}", crc32fast::hash(value.as_bytes()))
+}
+
 fn read_topics(m: &LoroMap) -> Vec<String> {
     let Some(topics) = child_map(m, "topics") else { return vec![] };
     let mut on: Vec<TopicEntry> =
@@ -201,16 +216,24 @@ fn read_topics(m: &LoroMap) -> Vec<String> {
     on.into_iter().map(|t| t.name).collect()
 }
 
-/// Turns topics on and off individually so concurrent additions on other devices survive.
-fn write_topics(m: &LoroMap, desired: &[String]) -> Result<bool> {
-    let topics = m.get_or_create_container("topics", LoroMap::new())?;
+/// Turns topics on and off individually so changes made on other devices survive. With
+/// `base` (the topics the editor opened with), only the user's own additions, removals,
+/// and renames are written; without it, the topics become exactly `desired`.
+fn write_topics(m: &LoroMap, desired: &[String], base: Option<&[String]>) -> Result<bool> {
+    let topics = m.ensure_mergeable_map("topics")?;
     let desired = normalize_topics(desired);
     let at = now_iso();
     let mut changed = false;
     let wanted: BTreeMap<String, (usize, &String)> = desired.iter().enumerate().map(|(i, t)| (t.to_lowercase(), (i, t))).collect();
+    let based: Option<BTreeMap<String, String>> =
+        base.map(|b| normalize_topics(b).into_iter().map(|t| (t.to_lowercase(), t)).collect());
     for key in topics.keys().map(|k| k.to_string()).collect::<Vec<_>>() {
+        let removed_by_user = match &based {
+            Some(based) => based.contains_key(&key) && !wanted.contains_key(&key),
+            None => !wanted.contains_key(&key),
+        };
         if let Some(entry) = json_value::<TopicEntry>(&topics, &key) {
-            if entry.on && !wanted.contains_key(&key) {
+            if entry.on && removed_by_user {
                 topics.insert(&key, serde_json::to_string(&TopicEntry { on: false, at: at.clone(), ..entry })?)?;
                 changed = true;
             }
@@ -218,7 +241,15 @@ fn write_topics(m: &LoroMap, desired: &[String]) -> Result<bool> {
     }
     for (key, (i, name)) in wanted {
         let existing = json_value::<TopicEntry>(&topics, &key);
-        if existing.as_ref().is_none_or(|e| !e.on || e.name != *name) {
+        let write = match &based {
+            // Added by the user, or renamed (case) by the user.
+            Some(based) => match based.get(&key) {
+                None => existing.as_ref().is_none_or(|e| !e.on || e.name != *name),
+                Some(was) => was != name && existing.as_ref().is_some_and(|e| e.name != *name),
+            },
+            None => existing.as_ref().is_none_or(|e| !e.on || e.name != *name),
+        };
+        if write {
             topics.insert(&key, serde_json::to_string(&TopicEntry { name: name.clone(), on: true, at: at.clone(), i })?)?;
             changed = true;
         }
@@ -258,7 +289,7 @@ pub fn read_note(doc: &LoroDoc, id: &str) -> Option<Note> {
 }
 
 pub fn list_notes(doc: &LoroDoc) -> Vec<Note> {
-    let notes = doc.get_map(NOTES);
+    let notes = doc.get_map(BITS);
     let mut out: Vec<Note> = notes.keys().filter_map(|k| read_note(doc, &k)).collect();
     out.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     out
@@ -306,13 +337,13 @@ pub fn apply_patch(doc: &LoroDoc, id: &str, patch: &NotePatch, by: &str) -> Resu
     let mut changed = false;
     for (field, value) in [("title", &patch.title), ("body", &patch.body), ("source", &patch.source)] {
         if let Some(value) = value {
-            let register = m.get_or_create_container(field, LoroMap::new())?;
+            let register = m.ensure_mergeable_map(field)?;
             let base = patch.base.as_ref().and_then(|b| b.get(field)).map(Vec::as_slice);
             changed |= write_register(&register, value, base, by)?;
         }
     }
     if let Some(topics) = &patch.topics {
-        changed |= write_topics(&m, topics)?;
+        changed |= write_topics(&m, topics, patch.base_topics.as_deref())?;
     }
     for (key, value) in [("favorite", patch.favorite), ("deleted", patch.deleted)] {
         if let Some(v) = value {
@@ -348,6 +379,7 @@ pub fn create_note(doc: &LoroDoc, patch: &NotePatch, by: &str) -> Result<String>
             updated_at: now,
         },
         by,
+        false,
     )?;
     Ok(id)
 }
@@ -355,36 +387,81 @@ pub fn create_note(doc: &LoroDoc, patch: &NotePatch, by: &str) -> Result<String>
 /// Adds a note with its own id and dates. Returns false (and changes nothing) if a note
 /// with that id already exists, so importing the same backup twice adds nothing.
 pub fn import_note(doc: &LoroDoc, note: &ImportedNote, by: &str) -> Result<bool> {
-    if note.id.is_empty() || note.id.len() > 100 {
+    if note.id.is_empty() || note.id.len() > 100 || note.id.contains(['/', '\0']) {
         bail!("A bit has an invalid id.");
     }
     validate(Some(&note.title), Some(&note.body), Some(&note.source), Some(&note.topics))?;
     if note_map(doc, &note.id).is_some() {
         return Ok(false);
     }
-    insert_note(doc, note, by)?;
+    insert_note(doc, note, by, true)?;
     Ok(true)
 }
 
-fn insert_note(doc: &LoroDoc, note: &ImportedNote, by: &str) -> Result<()> {
-    let m = doc.get_map(NOTES).insert_container(&note.id, LoroMap::new())?;
+fn insert_note(doc: &LoroDoc, note: &ImportedNote, by: &str, deterministic: bool) -> Result<()> {
+    let m = doc.get_map(BITS).ensure_mergeable_map(&note.id)?;
     m.insert("createdAt", note.created_at.as_str())?;
     m.insert("updatedAt", note.updated_at.as_str())?;
     for (field, value) in [("title", &note.title), ("body", &note.body), ("source", &note.source)] {
-        let register = m.insert_container(field, LoroMap::new())?;
-        let edit = Edit { v: value.clone(), s: vec![], at: note.updated_at.clone(), by: by.to_owned() };
-        register.insert(&uuid::Uuid::new_v4().to_string(), serde_json::to_string(&edit)?)?;
+        let register = m.ensure_mergeable_map(field)?;
+        let (key, by) = if deterministic {
+            (import_edit_id(value, &note.updated_at), "import".to_owned())
+        } else {
+            (uuid::Uuid::new_v4().to_string(), by.to_owned())
+        };
+        let edit = Edit { v: value.clone(), s: vec![], at: note.updated_at.clone(), by };
+        register.insert(&key, serde_json::to_string(&edit)?)?;
     }
-    m.insert_container("topics", LoroMap::new())?;
-    write_topics(&m, &note.topics)?;
+    write_topics(&m, &note.topics, None)?;
     m.insert("favorite", note.favorite)?;
     m.insert("deleted", false)?;
     Ok(())
 }
 
+/// Moves notes from the schema 2 layout (plain child containers, which don't merge when
+/// two devices create the same note) into the mergeable layout. Current versions keep
+/// their ids, which every device already shares, so devices upgrading independently
+/// produce identical results. Returns how many notes were moved. The caller commits.
+pub fn upgrade_from_v2(doc: &LoroDoc) -> Result<usize> {
+    let legacy = doc.get_map(LEGACY_NOTES);
+    let bits = doc.get_map(BITS);
+    let mut moved = 0;
+    for id in legacy.keys().map(|k| k.to_string()).collect::<Vec<_>>() {
+        let Some(old) = child_map(&legacy, &id) else { continue };
+        if child_map(&bits, &id).is_some() {
+            continue;
+        }
+        let m = bits.ensure_mergeable_map(&id)?;
+        for key in ["createdAt", "updatedAt"] {
+            m.insert(key, str_field(&old, key))?;
+        }
+        for key in ["favorite", "deleted"] {
+            m.insert(key, bool_field(&old, key))?;
+        }
+        for field in TEXT_FIELDS {
+            let register = m.ensure_mergeable_map(field)?;
+            if let Some(old_register) = child_map(&old, field) {
+                for (edit_id, edit) in current(&old_register) {
+                    register.insert(&edit_id, serde_json::to_string(&edit)?)?;
+                }
+            }
+        }
+        let topics = m.ensure_mergeable_map("topics")?;
+        if let Some(old_topics) = child_map(&old, "topics") {
+            for key in old_topics.keys() {
+                if let Some(ValueOrContainer::Value(v)) = old_topics.get(&key) {
+                    topics.insert(&key, v)?;
+                }
+            }
+        }
+        moved += 1;
+    }
+    Ok(moved)
+}
+
 /// Removes notes for good (emptying Trash). The caller commits.
 pub fn delete_forever(doc: &LoroDoc, ids: &[String]) -> Result<usize> {
-    let notes = doc.get_map(NOTES);
+    let notes = doc.get_map(BITS);
     let mut removed = 0;
     for id in ids {
         if note_map(doc, id).is_some_and(|m| bool_field(&m, "deleted")) {
@@ -432,7 +509,7 @@ pub fn write_addresses(doc: &LoroDoc, id: &str, addrs: &[std::net::SocketAddr]) 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn patch_body(text: &str) -> NotePatch {
@@ -558,5 +635,114 @@ mod tests {
         let n = read_note(&a, &id).unwrap();
         let same = NotePatch { body: Some("original".into()), topics: Some(vec!["Rust".into()]), base: Some(n.revs), ..Default::default() };
         assert!(!apply_patch(&a, &id, &same, "A").unwrap());
+    }
+
+    fn imported(id: &str) -> ImportedNote {
+        ImportedNote {
+            id: id.into(),
+            title: "Old title".into(),
+            body: "Old body".into(),
+            source: String::new(),
+            topics: vec!["Rust".into()],
+            favorite: false,
+            created_at: "2026-01-01T00:00:00.000Z".into(),
+            updated_at: "2026-01-02T00:00:00.000Z".into(),
+        }
+    }
+
+    #[test]
+    fn the_same_note_imported_on_two_devices_merges_both_edits() {
+        // Both devices migrated their own copy of the same old library before pairing.
+        let (a, b) = (LoroDoc::new(), LoroDoc::new());
+        import_note(&a, &imported("same"), "A").unwrap();
+        import_note(&b, &imported("same"), "B").unwrap();
+        let (ra, rb) = (read_note(&a, "same").unwrap(), read_note(&b, "same").unwrap());
+        assert_eq!(ra.revs, rb.revs, "the imported versions are the same version on both");
+        apply_patch(&a, "same", &NotePatch { title: Some("Title from A".into()), base: Some(ra.revs), ..Default::default() }, "A").unwrap();
+        apply_patch(&b, "same", &NotePatch { body: Some("Body from B".into()), base: Some(rb.revs), ..Default::default() }, "B").unwrap();
+        sync(&a, &b);
+        for doc in [&a, &b] {
+            let n = read_note(doc, "same").unwrap();
+            assert_eq!((n.title.as_str(), n.body.as_str()), ("Title from A", "Body from B"));
+            assert!(n.conflicts.is_empty(), "{:?}", n.conflicts);
+            assert_eq!(n.topics, vec!["Rust".to_string()]);
+        }
+        assert_eq!(list_notes(&a).len(), 1);
+    }
+
+    #[test]
+    fn the_same_imported_field_edited_on_both_devices_is_a_conflict() {
+        let (a, b) = (LoroDoc::new(), LoroDoc::new());
+        import_note(&a, &imported("same"), "A").unwrap();
+        import_note(&b, &imported("same"), "B").unwrap();
+        apply_patch(&a, "same", &patch_body("A's body"), "A").unwrap();
+        apply_patch(&b, "same", &patch_body("B's body"), "B").unwrap();
+        sync(&a, &b);
+        assert_eq!(read_note(&a, "same").unwrap().conflicts["body"].len(), 2);
+    }
+
+    #[test]
+    fn an_old_draft_keeps_topics_added_elsewhere() {
+        let (a, b, id) = two_replicas(); // Topics: Rust.
+        let opened = read_note(&a, &id).unwrap();
+        apply_patch(&b, &id, &NotePatch { topics: Some(vec!["Rust".into(), "Remote".into()]), base_topics: Some(vec!["Rust".into()]), ..Default::default() }, "B").unwrap();
+        sync(&a, &b);
+        // A's editor was opened before Remote arrived and adds Local.
+        apply_patch(&a, &id, &NotePatch { topics: Some(vec!["Rust".into(), "Local".into()]), base_topics: Some(opened.topics.clone()), ..Default::default() }, "A").unwrap();
+        sync(&a, &b);
+        let topics: BTreeSet<String> = read_note(&b, &id).unwrap().topics.into_iter().collect();
+        assert_eq!(topics, BTreeSet::from(["Rust".into(), "Remote".into(), "Local".into()]));
+        // Removing a topic from an old draft removes only that topic.
+        apply_patch(&a, &id, &NotePatch { topics: Some(vec!["Local".into()]), base_topics: Some(vec!["Rust".into(), "Local".into()]), ..Default::default() }, "A").unwrap();
+        let topics: BTreeSet<String> = read_note(&a, &id).unwrap().topics.into_iter().collect();
+        assert_eq!(topics, BTreeSet::from(["Remote".into(), "Local".into()]));
+    }
+
+    /// Writes a note the way schema 2 did: plain child containers under `notes`.
+    pub(crate) fn legacy_note(doc: &LoroDoc, id: &str, versions: &[(&str, &str)]) {
+        let m = doc.get_map(LEGACY_NOTES).insert_container(id, LoroMap::new()).unwrap();
+        m.insert("createdAt", "2026-01-01T00:00:00.000Z").unwrap();
+        m.insert("updatedAt", "2026-01-02T00:00:00.000Z").unwrap();
+        m.insert("favorite", true).unwrap();
+        m.insert("deleted", false).unwrap();
+        for field in TEXT_FIELDS {
+            let register = m.insert_container(field, LoroMap::new()).unwrap();
+            let values: Vec<(&str, &str)> = if field == "body" { versions.to_vec() } else { vec![("t-1", "Title")] };
+            for (key, value) in values {
+                let edit = Edit { v: value.into(), s: vec![], at: "2026-01-02T00:00:00.000Z".into(), by: "X".into() };
+                register.insert(&format!("{field}-{key}"), serde_json::to_string(&edit).unwrap()).unwrap();
+            }
+        }
+        let topics = m.insert_container("topics", LoroMap::new()).unwrap();
+        let t = TopicEntry { name: "Rust".into(), on: true, at: "2026-01-02T00:00:00.000Z".into(), i: 0 };
+        topics.insert("rust", serde_json::to_string(&t).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn schema_2_libraries_upgrade_identically_on_every_device() {
+        let a = LoroDoc::new();
+        legacy_note(&a, "plain", &[("1", "Body")]);
+        legacy_note(&a, "conflicted", &[("1", "Version one"), ("2", "Version two")]);
+        a.commit();
+        let b = LoroDoc::new();
+        b.import(&a.export(loro::ExportMode::Snapshot).unwrap()).unwrap();
+        // Each device upgrades on its own, then they sync.
+        assert_eq!(upgrade_from_v2(&a).unwrap(), 2);
+        assert_eq!(upgrade_from_v2(&b).unwrap(), 2);
+        assert_eq!(upgrade_from_v2(&a).unwrap(), 0, "a resumed upgrade skips moved notes");
+        sync(&a, &b);
+        assert_eq!(list_notes(&a), list_notes(&b));
+        let plain = read_note(&a, "plain").unwrap();
+        assert_eq!((plain.title.as_str(), plain.body.as_str(), plain.favorite), ("Title", "Body", true));
+        assert_eq!(plain.topics, vec!["Rust".to_string()]);
+        assert!(plain.conflicts.is_empty());
+        assert_eq!(read_note(&a, "conflicted").unwrap().conflicts["body"].len(), 2, "existing conflicts are kept");
+        // Edits after the upgrade merge normally.
+        apply_patch(&a, "plain", &NotePatch { title: Some("New".into()), base: Some(plain.revs.clone()), ..Default::default() }, "A").unwrap();
+        apply_patch(&b, "plain", &NotePatch { body: Some("New body".into()), base: Some(plain.revs), ..Default::default() }, "B").unwrap();
+        sync(&a, &b);
+        let n = read_note(&b, "plain").unwrap();
+        assert_eq!((n.title.as_str(), n.body.as_str()), ("New", "New body"));
+        assert!(n.conflicts.is_empty());
     }
 }

@@ -55,3 +55,23 @@ test('no text and extraction errors preserve the draft and allow retry', async (
   await waitFor(() => assert.match(screen.getByRole('alert').textContent, /cannot be decoded/));
   assert.equal(screen.getByPlaceholderText('Paste or write what you want to remember…').value, '');
 });
+test('after saving, the editor continues from the saved note, not its own draft', async () => {
+  window.bits = undefined;
+  const entry = { id: 'n', title: 'Old title', body: 'Body', topics: [], source: '', favorite: false, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' };
+  const saves = [];
+  // The library returns the note as stored: another device changed the title meanwhile.
+  const onSave = async result => { saves.push(result); return { ...result, title: 'Title from another device' }; };
+  render(React.createElement(BitDialog, { entry, onSave, onClose: () => {}, notify: () => {} }));
+  const edit = async text => {
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(await screen.findByPlaceholderText('Paste or write what you want to remember…'), { target: { value: text } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+  };
+  await edit('First edit');
+  await waitFor(() => assert.equal(saves.length, 1));
+  await waitFor(() => assert.equal(screen.queryByRole('button', { name: 'Save changes' }), null));
+  await edit('Second edit');
+  await waitFor(() => assert.equal(saves.length, 2));
+  assert.equal(saves[1].title, 'Title from another device', 'the second save must not send the old title back');
+  assert.equal(saves[1].body, 'Second edit');
+});

@@ -83,7 +83,7 @@ function browser() {
     const entries = read();
     const i = entries.findIndex(e => e.id === id);
     if (i < 0) throw new Error('That bit no longer exists.');
-    const { base: _base, ...fields } = patch;
+    const { base: _base, baseTopics: _baseTopics, ...fields } = patch;
     if (fields.topics) fields.topics = parseTopics(fields.topics.join(','));
     entries[i] = { ...entries[i], ...fields, updatedAt: now() };
     write(entries);

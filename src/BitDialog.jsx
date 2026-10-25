@@ -35,7 +35,11 @@ export default function BitDialog({ entry, onClose, onSave, onDelete, notify, de
     setSaving(true);
     try {
       // The library confirms only once the change is on disk; until then the draft stays.
-      if (await onSave(result)) { const saved = fields(result); setDraft(saved); setBaseline(saved); setDiscard(false); setError(''); setMode('read'); }
+      // Afterwards the editor continues from the note as saved, which can include fields
+      // changed on another device meanwhile; continuing from the draft would send those
+      // fields' old values back with the next save.
+      const stored = await onSave(result);
+      if (stored) { const saved = fields(stored === true ? result : stored); setDraft(saved); setBaseline(saved); setDiscard(false); setError(''); setMode('read'); }
     } finally { setSaving(false); }
   };
   const pickVersion = (field, value) => { setDiscard(false); setDraft(d => ({ ...d, [field]: value })); setMode('edit'); };

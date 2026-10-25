@@ -119,9 +119,10 @@ struct Meta {
 }
 
 /// Version of the document layout. 1 was the stage 1 prototype (last-writer-wins text
-/// fields); 2 adds multi-value text fields and per-topic entries. Data in another layout is
-/// refused rather than misread.
-const SCHEMA: u32 = 2;
+/// fields, refused). 2 added multi-value text fields and per-topic entries in plain child
+/// containers; it is upgraded on open. 3 keeps notes in mergeable containers so devices
+/// that create the same note independently merge their changes.
+const SCHEMA: u32 = 3;
 
 /// Local, unreplicated knowledge about other devices.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -210,7 +211,8 @@ impl Node {
             },
             Err(e) => return Err(e).context("reading meta.json"),
         };
-        if meta.schema != SCHEMA {
+        let upgrade_from_v2 = meta.schema == 2;
+        if meta.schema != SCHEMA && !upgrade_from_v2 {
             bail!(
                 "This sync data ({}) was made by an earlier test version of bits sync and can't be opened. \
                  Remove that folder (or clear the app's data) to start fresh.",
@@ -228,6 +230,16 @@ impl Node {
 
         let doc = LoroDoc::new();
         let mut store = DocStore::open(&dir, &doc)?;
+        if upgrade_from_v2 {
+            // Save the moved notes before recording the new layout; if this is interrupted,
+            // the next start resumes and skips notes already moved.
+            let moved = model::upgrade_from_v2(&doc)?;
+            doc.commit();
+            store.persist(&doc).context("Couldn't save the upgraded library")?;
+            meta.schema = SCHEMA;
+            write_atomic(&meta_path, &serde_json::to_vec_pretty(&meta)?)?;
+            tracing::info!(moved, "upgraded library layout from schema 2");
+        }
         let me = id.to_string();
         let own = model::read_devices(&doc).into_iter().find(|(k, _)| *k == me).map(|(_, r)| r);
         if own.as_ref().is_none_or(|r| r.name != meta.device_name || r.platform != cfg.platform) {
@@ -1240,5 +1252,31 @@ mod tests {
         for n in [a, b, c] {
             n.shutdown().await;
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_schema_2_library_on_disk_is_upgraded_on_open() {
+        let dir = tempfile::tempdir().unwrap();
+        {
+            let doc = LoroDoc::new();
+            let mut store = DocStore::open(dir.path(), &doc).unwrap();
+            crate::model::tests::legacy_note(&doc, "kept", &[("1", "Body before the upgrade")]);
+            doc.commit();
+            store.persist(&doc).unwrap();
+            let meta = serde_json::json!({ "libraryId": "lib", "deviceName": "Old", "schema": 2 });
+            std::fs::write(dir.path().join("meta.json"), meta.to_string()).unwrap();
+        }
+        let node = open(dir.path(), "Old").await;
+        let notes = node.notes();
+        assert_eq!(notes.len(), 1);
+        assert_eq!((notes[0].id.as_str(), notes[0].body.as_str()), ("kept", "Body before the upgrade"));
+        assert_eq!(node.status().library_id, "lib", "pairing is unaffected");
+        node.shutdown().await;
+        drop(node);
+        let meta: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join("meta.json")).unwrap()).unwrap();
+        assert_eq!(meta["schema"], 3);
+        let node = open(dir.path(), "Old").await;
+        assert_eq!(node.notes().len(), 1, "reopening doesn't upgrade twice");
+        node.shutdown().await;
     }
 }

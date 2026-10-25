@@ -83,16 +83,19 @@ export default function App() {
     if (!opened) {
       const created = await run(() => library.create({ title: result.title, body: result.body, topics: result.topics, source: result.source }));
       if (!created) return false;
-      setEditor(created); setQuery(''); setTopic(''); setView('all'); notify('Bit added'); return true;
+      setEditor(created); setQuery(''); setTopic(''); setView('all'); notify('Bit added'); return created;
     }
     // Send only what changed since the editor opened, based on the versions it opened.
     // Fields in conflict are always sent, so saving settles them to what's in the editor.
     const patch = { base: opened.revs };
     for (const k of ['title', 'body', 'source']) if (result[k] !== opened[k] || opened.conflicts?.[k]) patch[k] = result[k];
-    if (JSON.stringify(result.topics) !== JSON.stringify(opened.topics)) patch.topics = result.topics;
+    // Topics change relative to the ones the editor opened with, so topics added elsewhere stay.
+    if (JSON.stringify(result.topics) !== JSON.stringify(opened.topics)) { patch.topics = result.topics; patch.baseTopics = opened.topics; }
     const saved = await run(() => library.update(opened.id, patch));
     if (!saved) return false;
-    setEditor(saved); notify(Object.keys(saved.conflicts || {}).length ? 'Saved — another device changed this bit too; both versions are kept' : 'Changes saved'); return true;
+    setEditor(saved); notify(Object.keys(saved.conflicts || {}).length ? 'Saved — another device changed this bit too; both versions are kept' : 'Changes saved');
+    // The editor continues from the note as saved, including changes from other devices.
+    return saved;
   };
   const remove = async entry => {
     if (await run(() => library.setDeleted([entry.id], true)) === undefined) return;
