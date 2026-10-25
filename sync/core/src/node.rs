@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Notify, broadcast, mpsc, watch};
 
 use crate::{
-    model::{self, DeviceRecord, Note, NotePatch},
+    model::{self, DeviceRecord, ImportedNote, Note, NotePatch},
     proto::{self, PAIR_ALPN, PROTOCOL_VERSION, PairMsg, SYNC_ALPN, SyncMsg, Ticket, TicketKind},
     store::{DocStore, write_atomic},
 };
@@ -91,6 +91,14 @@ pub struct Invite {
     pub kind: TicketKind,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportResult {
+    pub added: usize,
+    /// Already present (same id), left unchanged.
+    pub skipped: usize,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PairResult {
@@ -105,7 +113,15 @@ pub struct PairResult {
 struct Meta {
     library_id: String,
     device_name: String,
+    /// Layout of the stored document; see [`SCHEMA`].
+    #[serde(default)]
+    schema: u32,
 }
+
+/// Version of the document layout. 1 was the stage 1 prototype (last-writer-wins text
+/// fields); 2 adds multi-value text fields and per-topic entries. Data in another layout is
+/// refused rather than misread.
+const SCHEMA: u32 = 2;
 
 /// Local, unreplicated knowledge about other devices.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -190,9 +206,17 @@ impl Node {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Meta {
                 library_id: uuid::Uuid::new_v4().to_string(),
                 device_name: cfg.device_name.clone(),
+                schema: SCHEMA,
             },
             Err(e) => return Err(e).context("reading meta.json"),
         };
+        if meta.schema != SCHEMA {
+            bail!(
+                "This sync data ({}) was made by an earlier test version of bits sync and can't be opened. \
+                 Remove that folder (or clear the app's data) to start fresh.",
+                dir.display()
+            );
+        }
         if !cfg.device_name.trim().is_empty() {
             meta.device_name = clean_name(&cfg.device_name);
         }
@@ -320,19 +344,61 @@ impl Node {
     }
 
     pub async fn create_note(&self, patch: NotePatch) -> Result<Note> {
+        let by = self.0.id.to_string();
         self.mutate(move |doc| {
-            let id = model::create_note(doc, &patch)?;
+            let id = model::create_note(doc, &patch, &by)?;
             Ok(model::read_note(doc, &id).expect("just created"))
         })
         .await
     }
 
     pub async fn update_note(&self, id: String, patch: NotePatch) -> Result<Note> {
+        let by = self.0.id.to_string();
         self.mutate(move |doc| {
-            model::apply_patch(doc, &id, &patch)?;
+            model::apply_patch(doc, &id, &patch, &by)?;
             Ok(model::read_note(doc, &id).expect("exists"))
         })
         .await
+    }
+
+    /// Adds notes from a backup or the pre-sync library, keeping ids and dates. Notes
+    /// whose id already exists are left alone, so repeating an import adds nothing.
+    /// All or nothing: one invalid note rejects the batch.
+    pub async fn import_notes(&self, notes: Vec<ImportedNote>) -> Result<ImportResult> {
+        let by = self.0.id.to_string();
+        self.mutate(move |doc| {
+            let mut result = ImportResult::default();
+            for note in &notes {
+                if model::import_note(doc, note, &by).with_context(|| format!("Bit {} can't be imported", note.id))? {
+                    result.added += 1;
+                } else {
+                    result.skipped += 1;
+                }
+            }
+            Ok(result)
+        })
+        .await
+    }
+
+    /// Moves notes to Trash or back, in one change (for "move all to Trash" and undo).
+    pub async fn set_deleted(&self, ids: Vec<String>, deleted: bool) -> Result<usize> {
+        let by = self.0.id.to_string();
+        self.mutate(move |doc| {
+            let mut changed = 0;
+            for id in &ids {
+                let patch = NotePatch { deleted: Some(deleted), ..Default::default() };
+                if model::apply_patch(doc, id, &patch, &by)? {
+                    changed += 1;
+                }
+            }
+            Ok(changed)
+        })
+        .await
+    }
+
+    /// Permanently removes notes that are in Trash, on every device.
+    pub async fn delete_forever(&self, ids: Vec<String>) -> Result<usize> {
+        self.mutate(move |doc| model::delete_forever(doc, &ids)).await
     }
 
     /// Applies a local change and returns only after it is durable on disk. It is

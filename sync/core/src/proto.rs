@@ -8,7 +8,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 pub const SYNC_ALPN: &[u8] = b"bits/sync/1";
 pub const PAIR_ALPN: &[u8] = b"bits/pair/1";
 /// Bumped whenever messages or document layout change incompatibly.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 const MAX_FRAME: usize = 128 * 1024 * 1024;
 const TICKET_PREFIX: &str = "BITS2";
 

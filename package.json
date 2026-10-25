@@ -1,6 +1,6 @@
 {
   "name": "bits",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "private": true,
   "type": "module",
   "description": "Small pieces of information, ready when you need them.",
@@ -10,14 +10,14 @@
     "dev": "vite --host 127.0.0.1",
     "desktop:dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5174 && electron . --dev\"",
     "build": "vite build",
-    "start": "npm run build && electron .",
+    "start": "npm run sync:helper && npm run build && electron .",
     "test": "node --test tests/*.test.mjs",
-    "package": "npm run build && electron-builder --linux AppImage tar.gz",
+    "package": "npm run sync:helper && npm run build && electron-builder --linux AppImage tar.gz",
+    "package:win": "npm run sync:helper && npm run build && electron-builder --win zip --x64",
     "install:linux": "node scripts/install-linux.mjs",
     "setup:ocr": "node scripts/setup-ocr.mjs",
     "sync:helper": "cargo build --release --manifest-path sync/Cargo.toml -p bits-sync-helper",
     "sync:ui": "vite build --config sync/ui/vite.config.js",
-    "sync:desktop": "npm run sync:helper && npm run sync:ui && electron sync/desktop/main.cjs",
     "sync:test": "cargo test --manifest-path sync/Cargo.toml && npm run sync:helper && node --test sync/tests/*.test.mjs",
     "tauri": "tauri",
     "sync:android": "node sync/android/build-apk.mjs"
@@ -65,7 +65,13 @@
           "StartupWMClass": "bits"
         }
       },
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "extraResources": [
+        {
+          "from": "sync/target/release/bits-sync-helper",
+          "to": "bits-sync-helper"
+        }
+      ]
     },
     "extraResources": [
       {
@@ -80,7 +86,19 @@
         "from": "scripts/setup-ocr.mjs",
         "to": "ocr-support/scripts/setup-ocr.mjs"
       }
-    ]
+    ],
+    "win": {
+      "target": "zip",
+      "icon": "build/icon.png",
+      "signAndEditExecutable": false,
+      "artifactName": "bits-${version}-win-${arch}.${ext}",
+      "extraResources": [
+        {
+          "from": "sync/target/release/bits-sync-helper.exe",
+          "to": "bits-sync-helper.exe"
+        }
+      ]
+    }
   },
   "desktopName": "bits.desktop"
 }

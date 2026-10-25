@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 
-const { startHelper } = createRequire(import.meta.url)("../desktop/helper-client.cjs");
+const { startHelper } = createRequire(import.meta.url)("../../electron/sync-helper.cjs");
 const quiet = { write() {} };
 
 async function waitFor(what, check, timeout = 20000) {

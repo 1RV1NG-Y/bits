@@ -7,8 +7,14 @@ contextBridge.exposeInMainWorld("bits", {
   ocrImport: () => ipcRenderer.invoke("ocr:import"),
   ocrCancel: () => ipcRenderer.invoke("ocr:cancel"),
   openExternal: (url) => ipcRenderer.invoke("link:open", url),
-  load: () => ipcRenderer.invoke("library:load"),
-  save: (data) => ipcRenderer.invoke("library:save", data),
+  sync: (method, params) => ipcRenderer.invoke("sync:call", method, params ?? null),
+  onSyncEvent: (callback) => {
+    const listener = (_event, name) => callback(name);
+    ipcRenderer.on("sync:event", listener);
+    return () => ipcRenderer.removeListener("sync:event", listener);
+  },
+  migrationError: () => ipcRenderer.invoke("library:migrationError"),
+  migrationResolved: () => ipcRenderer.invoke("library:migrationResolved"),
   export: (data) => ipcRenderer.invoke("library:export", data),
   import: () => ipcRenderer.invoke("library:import"),
   minimize: () => ipcRenderer.invoke("window:minimize"),

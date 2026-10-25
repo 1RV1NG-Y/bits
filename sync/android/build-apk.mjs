@@ -3,7 +3,7 @@
 //
 //   npm run sync:android        (from the repository root)
 //
-// Uses ANDROID_HOME (default ~/Android/Sdk), NDK_HOME (newest NDK found), JAVA_HOME
+// Uses ANDROID_HOME (or ~/Android/Sdk when that has no NDK), NDK_HOME (newest NDK found), JAVA_HOME
 // (default /usr/lib/jvm/java-21-openjdk), and ~/.android/debug.keystore.
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, mkdirSync, unlinkSync } from "node:fs";
@@ -12,11 +12,15 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const sdk = process.env.ANDROID_HOME || path.join(homedir(), "Android/Sdk");
+// Use ANDROID_HOME when it has an NDK; otherwise the user SDK at ~/Android/Sdk.
+const hasNdk = (dir) => dir && existsSync(path.join(dir, "ndk")) && readdirSync(path.join(dir, "ndk")).length > 0;
+const sdk = [process.env.ANDROID_HOME, path.join(homedir(), "Android/Sdk")].find(hasNdk);
+if (!sdk) throw new Error("No Android SDK with an NDK found. Set ANDROID_HOME, or install one under ~/Android/Sdk.");
 const newest = (dir) => readdirSync(dir).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
 const env = {
   ...process.env,
   ANDROID_HOME: sdk,
+  ANDROID_SDK_ROOT: sdk,
   NDK_HOME: process.env.NDK_HOME || path.join(sdk, "ndk", newest(path.join(sdk, "ndk"))),
   JAVA_HOME: process.env.JAVA_HOME || "/usr/lib/jvm/java-21-openjdk",
 };

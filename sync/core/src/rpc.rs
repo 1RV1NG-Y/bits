@@ -19,6 +19,18 @@ struct TicketParams {
 }
 
 #[derive(Deserialize)]
+struct ImportParams {
+    notes: Vec<crate::ImportedNote>,
+}
+
+#[derive(Deserialize)]
+struct IdsParams {
+    ids: Vec<String>,
+    #[serde(default)]
+    deleted: bool,
+}
+
+#[derive(Deserialize)]
 struct IdParams {
     id: String,
 }
@@ -31,6 +43,18 @@ pub async fn dispatch(node: &Node, method: &str, params: Value) -> Result<Value>
         "updateNote" => {
             let p: UpdateParams = serde_json::from_value(params)?;
             serde_json::to_value(node.update_note(p.id, p.patch).await?)?
+        }
+        "importNotes" => {
+            let p: ImportParams = serde_json::from_value(params)?;
+            serde_json::to_value(node.import_notes(p.notes).await?)?
+        }
+        "setDeleted" => {
+            let p: IdsParams = serde_json::from_value(params)?;
+            serde_json::to_value(node.set_deleted(p.ids, p.deleted).await?)?
+        }
+        "deleteForever" => {
+            let p: IdsParams = serde_json::from_value(params)?;
+            serde_json::to_value(node.delete_forever(p.ids).await?)?
         }
         "createInvite" => serde_json::to_value(node.create_invite()?)?,
         "join" => {

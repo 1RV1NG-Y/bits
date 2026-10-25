@@ -11,7 +11,8 @@ const path = require("node:path");
 const fs = require("node:fs/promises");
 const { pathToFileURL } = require("node:url");
 const { createOcrService } = require("./ocr.cjs");
-const { createStorage } = require("./storage.cjs");
+const { startHelper } = require("./sync-helper.cjs");
+const { migrateLegacyLibrary, markMigrated } = require("./migrate.cjs");
 
 app.setName("bits");
 if (process.env.BITS_DATA_DIR)
@@ -19,7 +20,8 @@ if (process.env.BITS_DATA_DIR)
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
 let win;
-let store;
+let helper;
+let migrationError = null;
 let ocr;
 let quitting = false;
 const isDev = process.argv.includes("--dev");
@@ -33,7 +35,24 @@ app.on("second-instance", () => {
 if (gotLock)
   app.whenReady().then(async () => {
     const { validateLibrary, webUrl } = await import("../src/model.mjs");
-    store = createStorage(app.getPath("userData"), validateLibrary);
+    // The library lives in the sync helper (sync/), which saves every change durably
+    // before confirming it and syncs with paired devices.
+    helper = startHelper({ dataDir: path.join(app.getPath("userData"), "sync"), port: Number(process.env.BITS_SYNC_PORT) || 47100 });
+    const send = (name) => { if (win && !win.isDestroyed()) win.webContents.send("sync:event", name); };
+    helper.events.on("exit", () => { if (!quitting) send("helperStopped"); });
+    for (const name of ["notesChanged", "statusChanged"]) helper.events.on(name, () => send(name));
+    try {
+      await helper.ready;
+    } catch (error) {
+      dialog.showErrorBox("bits couldn’t open your library", error.message);
+      app.exit(1);
+      return;
+    }
+    try {
+      await migrateLegacyLibrary({ userData: app.getPath("userData"), helper, validate: validateLibrary });
+    } catch (error) {
+      migrationError = error.message;
+    }
     const dataHome = process.env.XDG_DATA_HOME && path.isAbsolute(process.env.XDG_DATA_HOME) ? process.env.XDG_DATA_HOME : path.join(app.getPath("home"), ".local/share");
     const resourceRoot = app.isPackaged ? path.join(process.resourcesPath, "ocr-support") : path.join(__dirname, "..");
     ocr = createOcrService({
@@ -69,8 +88,13 @@ if (gotLock)
       if (selected.canceled || !selected.filePaths.length) return null;
       return ocr.extract(selected.filePaths[0]);
     });
-    handle("library:load", () => store.load());
-    handle("library:save", (data) => store.save(data));
+    handle("sync:call", (method, params) => helper.request(method, params));
+    handle("library:migrationError", () => migrationError);
+    // After restoring a backup in place of an unreadable old library.
+    handle("library:migrationResolved", async () => {
+      await markMigrated(app.getPath("userData"), { restoredFromBackup: true });
+      migrationError = null;
+    });
     handle("link:open", (value) => {
       const url = webUrl(value);
       if (!url) throw new Error("Only HTTP and HTTPS links can be opened.");
@@ -136,44 +160,24 @@ if (gotLock)
       win.webContents.session.setPermissionCheckHandler(() => false);
       win.once("ready-to-show", () => win.show());
       win.on("closed", () => ocr.cancel());
-      win.on("close", (event) => {
-        if (quitting) return;
-        event.preventDefault();
-        store
-          .flush()
-          .then(() => {
-            quitting = true;
-            win.close();
-          })
-          .catch(async () => {
-            const result = await dialog.showMessageBox(win, {
-              type: "warning",
-              message: "Your latest changes could not be saved.",
-              detail:
-                "Keep bits open to export your library, or close without saving.",
-              buttons: ["Keep open", "Close without saving"],
-              defaultId: 0,
-              cancelId: 0,
-            });
-            if (result.response === 1) {
-              quitting = true;
-              win.close();
-            }
-          });
-      });
+      win.on("closed", () => { win = null; });
       if (isDev) win.loadURL(trusted);
       else win.loadFile(appFile);
     }
     createWindow();
     app.on("activate", () => {
-      if (!BrowserWindow.getAllWindows().length) {
-        quitting = false;
-        createWindow();
-      }
+      if (!BrowserWindow.getAllWindows().length) createWindow();
     });
   });
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-app.on("before-quit", () => ocr?.cancel());
+app.on("before-quit", (event) => {
+  ocr?.cancel();
+  if (quitting || !helper) return;
+  // Every save is already on disk; let the helper close its connections cleanly.
+  event.preventDefault();
+  quitting = true;
+  helper.stop().finally(() => app.quit());
+});

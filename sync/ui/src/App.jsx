@@ -136,6 +136,8 @@ function Editor({ note, latest, call, notify, backRef, onClose }) {
   const fields = n => ({ title: n?.title || '', body: n?.body || '', topics: (n?.topics || []).join(', '), source: n?.source || '' });
   const [base, setBase] = useState(() => fields(note));
   const [draft, setDraft] = useState(() => fields(note));
+  // The versions this editor is based on; a save replaces only these.
+  const [revs, setRevs] = useState(() => note?.revs || {});
   const [busy, setBusy] = useState(false);
   const dirty = Object.keys(draft).some(k => draft[k] !== base[k]);
   const current = latest ? fields(latest) : null;
@@ -149,6 +151,7 @@ function Editor({ note, latest, call, notify, backRef, onClose }) {
     if (quiet.length) {
       setDraft(d => ({ ...d, ...Object.fromEntries(quiet.map(k => [k, current[k]])) }));
       setBase(b => ({ ...b, ...Object.fromEntries(quiet.map(k => [k, current[k]])) }));
+      setRevs(r => ({ ...r, ...Object.fromEntries(quiet.filter(k => latest.revs?.[k]).map(k => [k, latest.revs[k]])) }));
     }
   }, [latest]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -160,9 +163,11 @@ function Editor({ note, latest, call, notify, backRef, onClose }) {
       if (!note) await call('createNote', { title: draft.title, body: draft.body, source: draft.source, topics });
       else {
         // Send only the fields changed since the version this editor opened.
+        // Fields with versions from two devices are always sent, settling them to the draft.
+        const stored = latest?.conflicts || {};
         const patch = {};
-        for (const k of Object.keys(draft)) if (draft[k] !== base[k]) patch[k] = k === 'topics' ? topics : draft[k];
-        if (Object.keys(patch).length) await call('updateNote', { id: note.id, patch });
+        for (const k of Object.keys(draft)) if (draft[k] !== base[k] || stored[k]) patch[k] = k === 'topics' ? topics : draft[k];
+        if (Object.keys(patch).length) await call('updateNote', { id: note.id, patch: { ...patch, base: { ...revs, ...Object.fromEntries(Object.keys(stored).map(k => [k, latest.revs[k]])) } } });
       }
       notify(note ? 'Saved' : 'Note added');
       onClose();
@@ -182,12 +187,16 @@ function Editor({ note, latest, call, notify, backRef, onClose }) {
     <header className="sheet-header"><button className="icon-button" aria-label="Close" onClick={close}><ArrowLeft size={19}/></button><h2>{note ? 'Edit note' : 'New note'}</h2>
       {note && (note.deleted ? <button className="secondary" onClick={() => setDeleted(false)}><RotateCcw size={15}/>Restore</button> : <button className="icon-button danger" aria-label="Move to Trash" onClick={() => setDeleted(true)}><Trash2 size={17}/></button>)}
     </header>
+    {latest?.conflicts && Object.entries(latest.conflicts).map(([field, versions]) => <div key={field} className="banner warn versions">
+      <span>The {field === 'body' ? 'information' : field} was changed on two devices at once. Both versions are kept; pick one or combine them, then save.</span>
+      {versions.map((v, i) => <button key={i} className="secondary small" onClick={() => setDraft(d => ({ ...d, [field]: v.value }))}>Use: {v.value.slice(0, 40) || '(empty)'}{v.value.length > 40 ? '…' : ''}</button>)}
+    </div>)}
     {conflicts.length > 0 && <div className="banner warn">Another device changed {conflicts.join(', ')} while you were editing. Saving keeps your version.</div>}
     <label>Title<input value={draft.title} maxLength={200} placeholder="Optional" onChange={e => setDraft({ ...draft, title: e.target.value })}/></label>
     <label className="grow">Information<textarea value={draft.body} autoFocus={!note} placeholder="Write or paste something worth keeping" onChange={e => setDraft({ ...draft, body: e.target.value })}/></label>
     <label>Topics<input value={draft.topics} placeholder="Comma separated" onChange={e => setDraft({ ...draft, topics: e.target.value })}/></label>
     <label>Source<input value={draft.source} placeholder="Optional" onChange={e => setDraft({ ...draft, source: e.target.value })}/></label>
-    <div className="sheet-actions"><button className="secondary" onClick={close}>Cancel</button><button className="primary" disabled={busy || !draft.body.trim() || (note && !dirty)} onClick={save}>{busy ? 'Saving…' : 'Save'}</button></div>
+    <div className="sheet-actions"><button className="secondary" onClick={close}>Cancel</button><button className="primary" disabled={busy || !draft.body.trim() || (note && !dirty && !latest?.conflicts)} onClick={save}>{busy ? 'Saving…' : 'Save'}</button></div>
   </section></div>;
 }
 

@@ -8,5 +8,5 @@ pub mod rpc;
 pub mod store;
 
 pub use iroh::EndpointId;
-pub use model::{Note, NotePatch};
-pub use node::{DeviceStatus, Event, Invite, Node, NodeConfig, PairResult, Status};
+pub use model::{ImportedNote, Note, NotePatch, Version};
+pub use node::{DeviceStatus, Event, ImportResult, Invite, Node, NodeConfig, PairResult, Status};

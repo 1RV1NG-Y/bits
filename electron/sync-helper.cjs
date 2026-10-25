@@ -10,7 +10,7 @@ function helperPath() {
   // Packaged apps ship the helper in resources/; development uses the cargo build.
   if (process.resourcesPath && !process.defaultApp && require("node:fs").existsSync(path.join(process.resourcesPath, exe)))
     return path.join(process.resourcesPath, exe);
-  return path.join(__dirname, "../target/release", exe);
+  return path.join(__dirname, "../sync/target/release", exe);
 }
 
 function startHelper({ dataDir, name, port, mdns = true, log = process.stderr } = {}) {
