@@ -1,6 +1,7 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { JSDOM } from 'jsdom';
 import React from 'react';
 import { build } from 'rolldown';
@@ -10,7 +11,8 @@ dom.window.HTMLDialogElement.prototype.showModal = function () { this.setAttribu
 dom.window.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
 const { render, fireEvent, screen, waitFor, cleanup, act } = await import('@testing-library/react');
 await mkdir('node_modules/.cache/bits-tests', { recursive: true });
-await build({ input: 'src/BitDialog.jsx', platform: 'node', external: [/^[^./]/], output: { file: 'node_modules/.cache/bits-tests/dialog.mjs', format: 'esm' } });
+// Bare package names stay external; local files (including Windows paths like D:\…) are bundled.
+await build({ input: 'src/BitDialog.jsx', platform: 'node', external: id => !id.startsWith('.') && !path.isAbsolute(id), output: { file: 'node_modules/.cache/bits-tests/dialog.mjs', format: 'esm' } });
 const { default: BitDialog } = await import('../node_modules/.cache/bits-tests/dialog.mjs');
 afterEach(cleanup);
 const extracted = { text: 'Image text', filename: 'note.png', engine: 'PP-OCRv6 Small' };
