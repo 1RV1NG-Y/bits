@@ -30,13 +30,15 @@ In **Add a bit → Import from image**, choose a PNG, JPEG, WebP, BMP, or TIFF. 
 
 The installed app has the OCR runtime ready. On a new installation, the same control offers **Set up image import** for a one-time download. Setup requires Python 3.10–3.13 (3.11/3.12 recommended); it installs its own virtual environment and the official Small detection and recognition models. It needs roughly 1.3 GB on disk including Python dependencies (the models themselves are about 30 MB). No GPU, account, API key, or image upload is required. After setup, extraction works offline. The browser preview does not provide image import.
 
-Limits: one image at a time, 25 MB, 40 megapixels, 100,000 resulting characters. This is text OCR, not table/layout reconstruction or AI summarization; difficult images may need manual corrections. EXIF orientation is honored; document rotation/unwarping models are not loaded.
+The text keeps the image's reading order: lines that belong together (a paragraph, a heading, a card or cover) stay together as a block with a blank line after it, side-by-side columns are read one after another, chat bubbles stay in message order, and simple tables are read row by row. OCR still reads every word on the image, including decoration such as publisher marks, so expect to trim it.
+
+Limits: one image at a time, 25 MB, 40 megapixels, 100,000 resulting characters. This is text OCR, not AI summarization; stylized lettering can be misread, and difficult images may need manual corrections. EXIF orientation is honored; document rotation/unwarping models are not loaded.
 
 For development, run `npm run setup:ocr`. Runtime/models live under `~/.local/share/bits/ocr` (or `$XDG_DATA_HOME/bits/ocr`). Set `BITS_OCR_HOME` to override that directory, or `BITS_OCR_PYTHON` to choose a supported Python interpreter during setup. The runtime is separate from the AppImage and survives updates. The worker and setup scripts are bundled as application resources.
 
 The model choices and API follow [PaddleOCR’s official OCR documentation](https://github.com/PaddlePaddle/PaddleOCR/blob/main/docs/version3.x/pipeline_usage/OCR.en.md). Versions are pinned in `ocr/requirements.txt`.
 
-AI distillation from URLs/video, global capture shortcuts, and semantic retrieval are future work.
+AI distillation from URLs/video, turning images such as slides or covers into clean structured lists with a vision model, global capture shortcuts, and semantic retrieval are future work.
 
 ## Sync between devices
 
@@ -81,4 +83,4 @@ Each push builds bits on Windows in CI (`.github/workflows/windows.yml`) and upl
 
 `npm test` covers backup validation, search/filter composition, optional fields, topic normalization, and moving a pre-sync library into sync (every field kept, resuming after interruption, unreadable files left untouched; needs `npm run sync:helper` first). `npm run sync:test` covers the sync engine: storage, merge rules, pairing, and multi-device scenarios. `npm run build` checks the production build. UI verification includes text-only capture, topic filtering, editing, reload persistence, unsaved-change protection, and delete/undo.
 
-OCR tests cover worker validation, cancellation/timeouts, incomplete model setup, draft-safe appending, late results, no-text results, and errors. To exercise the real installed models on a text image, run `node tests/ocr-integration.mjs /absolute/path/to/image.png`.
+OCR tests cover reading order (a real multi-column OCR result, chats, articles with a full-width title, tables), worker validation, cancellation/timeouts, incomplete model setup, draft-safe appending, late results, no-text results, and errors. To exercise the real installed models on a text image, run `node tests/ocr-integration.mjs /absolute/path/to/image.png`.

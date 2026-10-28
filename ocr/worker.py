@@ -74,15 +74,23 @@ def extract(path, home):
         pixels = np.asarray(white.convert('RGB'))[:, :, ::-1].copy()
     lines = []
     scores = []
+    items = []
     for result in engine(home).predict(pixels):
-        for text, score in zip(result['rec_texts'], result['rec_scores']):
+        boxes = result.get('rec_boxes')
+        for i, (text, score) in enumerate(zip(result['rec_texts'], result['rec_scores'])):
             if text.strip():
                 lines.append(text.strip())
                 scores.append(float(score))
+                # Positions let the app rebuild reading order (columns, blocks).
+                if boxes is not None and i < len(boxes):
+                    items.append({'text': text.strip(), 'box': [int(v) for v in boxes[i][:4]]})
     text = '\n'.join(lines)
     if len(text) > 100000:
         raise ValueError('The extracted text exceeds the bit size limit. Crop the image and try again.')
-    return {'text': text, 'lines': len(lines), 'confidence': round(sum(scores) / len(scores), 3) if scores else None, 'engine': 'PP-OCRv6 Small'}
+    result = {'text': text, 'lines': len(lines), 'confidence': round(sum(scores) / len(scores), 3) if scores else None, 'engine': 'PP-OCRv6 Small'}
+    if len(items) == len(lines):
+        result['items'] = items
+    return result
 
 
 def main():

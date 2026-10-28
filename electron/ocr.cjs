@@ -1,5 +1,6 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const { arrangeLines } = require('./ocr-layout.cjs');
 const { spawn } = require('node:child_process');
 const MAX_IMAGE_BYTES = 25 * 1024 * 1024;
 
@@ -51,7 +52,10 @@ function parseResult(stdout) {
   if (!result.ok) throw new Error(result.error || 'OCR could not read this image.');
   if (typeof result.text !== 'string' || result.text.length > 100000 || result.engine !== 'PP-OCRv6 Small')
     throw new Error('OCR returned an invalid result.');
-  return { text: result.text, engine: result.engine, lines: result.lines, confidence: result.confidence };
+  // With line positions, rebuild reading order (columns, blocks); otherwise keep the plain text.
+  const items = Array.isArray(result.items) && result.items.length <= 20000 ? result.items : null;
+  const text = items?.length ? arrangeLines(items) || result.text : result.text;
+  return { text, engine: result.engine, lines: result.lines, confidence: result.confidence };
 }
 
 function createOcrService({ home, worker, setupScript, node = process.execPath, run = runProcess }) {
